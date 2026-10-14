@@ -21,7 +21,7 @@ pub enum OpSource {
     Agent { session_id: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryEntry {
     pub op: Op,

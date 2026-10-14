@@ -5,9 +5,10 @@ use crate::model::{
     MediaReference, Track, TrackItem, Transform, Transition,
 };
 use crate::time::{RationalTime, TimeRange};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[allow(clippy::large_enum_variant)]
 pub enum OpInverse {
     // Media

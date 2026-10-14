@@ -1,0 +1,35 @@
+[package]
+name = "slate-ipc"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "High-performance JSON-RPC 2.0 IPC protocol and client for the Slate video editor"
+
+[dependencies]
+slate-core = { path = "../slate-core" }
+slate-media = { path = "../slate-media" }
+
+jsonrpsee = { version = "0.24", features = ["server", "client", "ws-client", "macros"] }
+tokio = { workspace = true }
+tokio-stream = "0.1"
+futures-util = "0.3"
+async-trait = "0.1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+uuid = { workspace = true }
+sha2 = "0.10"
+hex = "0.4"
+thiserror = { workspace = true }
+tracing = { workspace = true }
+dirs = "5.0"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio-test = "0.4"
+tracing-subscriber = { workspace = true }

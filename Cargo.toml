@@ -6,6 +6,7 @@ members = [
     "crates/slate-audio",
     "crates/slate-render",
     "crates/slate-cli",
+    "crates/slate-ipc",
 ]
 
 [workspace.package]
