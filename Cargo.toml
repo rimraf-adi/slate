@@ -5,6 +5,7 @@ members = [
     "crates/slate-media",
     "crates/slate-audio",
     "crates/slate-render",
+    "crates/slate-cli",
 ]
 
 [workspace.package]

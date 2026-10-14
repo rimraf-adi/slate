@@ -1,0 +1,33 @@
+[package]
+name = "slate-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Headless CLI and automation tool for the Slate video editor"
+default-run = "slate"
+
+[[bin]]
+name = "slate"
+path = "src/main.rs"
+
+[dependencies]
+slate-core = { path = "../slate-core" }
+slate-media = { path = "../slate-media" }
+slate-audio = { path = "../slate-audio" }
+slate-render = { path = "../slate-render" }
+
+clap = { version = "4.5", features = ["derive", "env", "color"] }
+indicatif = { version = "0.17" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
