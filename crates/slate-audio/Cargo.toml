@@ -1,0 +1,23 @@
+[package]
+name = "slate-audio"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+slate-core = { workspace = true }
+cpal = "0.15"
+rubato = "0.15"
+rtrb = "0.3"
+
+crossbeam-channel.workspace = true
+parking_lot.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

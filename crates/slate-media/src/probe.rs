@@ -16,7 +16,7 @@ impl MediaProbe {
             .map(|m| m.len())
             .unwrap_or(0);
 
-        let ictx = ffmpeg_next::format::input(path).map_err(|e| MediaError::Ffmpeg(e))?;
+        let ictx = ffmpeg_next::format::input(path).map_err(MediaError::Ffmpeg)?;
 
         let mut duration_secs = 0.0;
         if ictx.duration() > 0 {
@@ -72,7 +72,7 @@ impl MediaProbe {
 
                     if let Some(aud) = decoder {
                         audio_channels = Some(aud.channels() as u32);
-                        sample_rate = Some(aud.rate() as u32);
+                        sample_rate = Some(aud.rate());
                     }
 
                     let id = codec_params.id();

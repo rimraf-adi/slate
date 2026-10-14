@@ -8,6 +8,7 @@ use crate::time::{RationalTime, TimeRange};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum OpInverse {
     // Media
     UnimportMedia {

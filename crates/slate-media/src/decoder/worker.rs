@@ -18,7 +18,7 @@ unsafe impl Send for FileDecoder {}
 
 impl FileDecoder {
     pub fn open(path: &Path) -> Result<Self> {
-        let input = ffmpeg_next::format::input(path).map_err(|e| MediaError::Ffmpeg(e))?;
+        let input = ffmpeg_next::format::input(path).map_err(MediaError::Ffmpeg)?;
 
         let mut video_stream_index = None;
         let mut audio_stream_index = None;
@@ -137,7 +137,7 @@ impl FileDecoder {
 
         scaler
             .run(&frame, &mut rgb_frame)
-            .map_err(|e| MediaError::Ffmpeg(e))?;
+            .map_err(MediaError::Ffmpeg)?;
 
         let data = rgb_frame.data(0).to_vec();
         let stride = rgb_frame.stride(0);

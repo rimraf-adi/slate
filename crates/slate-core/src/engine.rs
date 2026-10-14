@@ -64,7 +64,7 @@ impl Engine {
             .timelines
             .iter_mut()
             .find(|t| t.id == self.project.active_timeline_id)
-            .ok_or_else(|| OpError::TimelineNotFound {
+            .ok_or(OpError::TimelineNotFound {
                 timeline_id: self.project.active_timeline_id,
             })?;
 

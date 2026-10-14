@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "crates/slate-core",
     "crates/slate-media",
+    "crates/slate-audio",
+    "crates/slate-render",
 ]
 
 [workspace.package]

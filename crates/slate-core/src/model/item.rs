@@ -23,6 +23,7 @@ impl Gap {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+#[allow(clippy::large_enum_variant)]
 pub enum TrackItem {
     Clip(Clip),
     Gap(Gap),

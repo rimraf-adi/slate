@@ -6,7 +6,7 @@ pub struct Timecode;
 impl Timecode {
     /// Parses SMPTE timecode (e.g. `01:00:12:15` or drop-frame `01:00:12;15`).
     pub fn parse(tc: &str, rate: u32, drop_frame: bool) -> Result<RationalTime, TimeError> {
-        let parts: Vec<&str> = tc.split(|c| c == ':' || c == ';').collect();
+        let parts: Vec<&str> = tc.split([':', ';']).collect();
         if parts.len() != 4 {
             return Err(TimeError::InvalidTimecode(tc.to_string()));
         }

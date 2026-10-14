@@ -54,7 +54,7 @@ impl MediaDecoder for FfmpegMediaDecoder {
         let mut decoders = self.decoders.lock();
         let decoder = decoders
             .get_mut(&handle.0)
-            .ok_or_else(|| MediaError::SeekError(time))?;
+            .ok_or(MediaError::SeekError(time))?;
 
         decoder
             .decode_video_frame(time)
@@ -69,7 +69,7 @@ impl MediaDecoder for FfmpegMediaDecoder {
         let mut decoders = self.decoders.lock();
         let decoder = decoders
             .get_mut(&handle.0)
-            .ok_or_else(|| MediaError::SeekError(range.start))?;
+            .ok_or(MediaError::SeekError(range.start))?;
 
         decoder
             .decode_audio_range(range)

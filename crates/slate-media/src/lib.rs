@@ -20,5 +20,5 @@ pub use thumbnail::ThumbnailGenerator;
 
 /// Initializes the global FFmpeg library subsystems and logging.
 pub fn init() -> Result<()> {
-    ffmpeg_next::init().map_err(|e| MediaError::Ffmpeg(e))
+    ffmpeg_next::init().map_err(MediaError::Ffmpeg)
 }

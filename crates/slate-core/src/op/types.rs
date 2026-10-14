@@ -61,6 +61,7 @@ pub enum KeyframeProperty {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "payload", rename_all = "camelCase")]
+#[allow(clippy::large_enum_variant)]
 pub enum Op {
     // Media Pool Operations
     ImportMedia {
