@@ -26,7 +26,9 @@ pub fn execute(args: NewArgs, json: bool) -> Result<()> {
         drop_frame: false,
         sample_rate: 48000,
     };
-    project.timelines[0] = Timeline::new("Main Sequence", settings);
+    let new_timeline = Timeline::new("Main Sequence", settings);
+    project.active_timeline_id = new_timeline.id;
+    project.timelines[0] = new_timeline;
 
     ProjectBundle::save_to_bundle(&project_dir, &project)
         .with_context(|| format!("Failed to save project bundle at {:?}", project_dir))?;
