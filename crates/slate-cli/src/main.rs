@@ -32,6 +32,9 @@ async fn main() -> anyhow::Result<()> {
         Commands::Import(args) => commands::import::execute(args, json)?,
         Commands::Thumbnail(args) => commands::thumbnail::execute(args, json)?,
         Commands::Ops(args) => commands::ops::execute(args, json)?,
+        Commands::Mcp(args) => commands::mcp::execute(args, json).await?,
+        Commands::Analyze(args) => commands::analyze::execute(args, json).await?,
+        Commands::Gui(args) => commands::gui::execute(args, json)?,
         Commands::Version => commands::version::execute(json)?,
     }
 

@@ -9,6 +9,7 @@ members = [
     "crates/slate-ipc",
     "crates/slate-analysis",
     "crates/slate-mcp",
+    "crates/slate-ui",
 ]
 
 [workspace.package]
@@ -59,7 +60,7 @@ tempfile = "3.12"
 
 [profile.dev]
 opt-level = 0
-debug = true
+debug = 1
 
 [profile.release]
 opt-level = 3

@@ -54,6 +54,15 @@ pub enum Commands {
     /// Apply an atomic batch of operations from a JSON file
     Ops(OpsArgs),
 
+    /// Run the MCP server for AI agent collaboration (stdio or attached)
+    Mcp(McpArgs),
+
+    /// Perform multimodal analysis (transcription, silences, scenes, loudness)
+    Analyze(AnalyzeArgs),
+
+    /// Launch the interactive desktop non-linear video editor UI
+    Gui(GuiArgs),
+
     /// Display version, system, FFmpeg, and GPU capabilities
     Version,
 }
@@ -162,4 +171,49 @@ pub struct OpsArgs {
     /// Perform a dry-run validation without writing changes to disk
     #[arg(long)]
     pub dry_run: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct McpArgs {
+    /// Start in headless mode without attaching to an open GUI editor
+    #[arg(long)]
+    pub headless: bool,
+
+    /// Path to an existing project bundle (.slateproj)
+    #[arg(value_name = "PROJECT_DIR")]
+    pub project: Option<PathBuf>,
+
+    /// Path to local IPC socket for attached mode
+    #[arg(long)]
+    pub socket: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct AnalyzeArgs {
+    /// Path to the media file to analyze
+    #[arg(value_name = "FILE")]
+    pub path: PathBuf,
+
+    /// Generate speech transcription
+    #[arg(long)]
+    pub transcribe: bool,
+
+    /// Detect silence dead air intervals via VAD
+    #[arg(long)]
+    pub silences: bool,
+
+    /// Detect visual scene cuts via histogram distance
+    #[arg(long)]
+    pub scenes: bool,
+
+    /// Compute EBU R128 loudness metrics
+    #[arg(long)]
+    pub loudness: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct GuiArgs {
+    /// Optional project bundle (.slateproj) to open on launch
+    #[arg(value_name = "PROJECT_DIR")]
+    pub project: Option<PathBuf>,
 }

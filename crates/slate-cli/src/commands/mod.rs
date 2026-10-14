@@ -1,5 +1,8 @@
+pub mod analyze;
+pub mod gui;
 pub mod import;
 pub mod info;
+pub mod mcp;
 pub mod new;
 pub mod ops;
 pub mod render;

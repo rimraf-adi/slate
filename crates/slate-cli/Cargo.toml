@@ -17,6 +17,10 @@ slate-core = { path = "../slate-core" }
 slate-media = { path = "../slate-media" }
 slate-audio = { path = "../slate-audio" }
 slate-render = { path = "../slate-render" }
+slate-analysis = { path = "../slate-analysis" }
+slate-mcp = { path = "../slate-mcp" }
+slate-ipc = { path = "../slate-ipc" }
+slate-ui = { path = "../slate-ui" }
 
 clap = { version = "4.5", features = ["derive", "env", "color"] }
 indicatif = { version = "0.17" }
