@@ -8,6 +8,7 @@ members = [
     "crates/slate-cli",
     "crates/slate-ipc",
     "crates/slate-analysis",
+    "crates/slate-mcp",
 ]
 
 [workspace.package]
