@@ -1,0 +1,30 @@
+[package]
+name = "slate-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Headless core domain engine for the Slate video editor: timeline model, ops, undo stack, and rational time"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+bincode = { workspace = true }
+uuid = { workspace = true }
+num-rational = { workspace = true }
+num-traits = { workspace = true }
+num-integer = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+crc32fast = { workspace = true }
+pathdiff = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = { workspace = true }
+insta = { workspace = true }
