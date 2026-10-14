@@ -1,0 +1,27 @@
+[package]
+name = "slate-analysis"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Multimodal AI media analysis engine for Slate video editor"
+
+[dependencies]
+slate-core = { workspace = true }
+slate-media = { path = "../slate-media" }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+sha2 = "0.10"
+hex = "0.4"
+ebur128 = "0.1"
+
+[dev-dependencies]
+tempfile = { workspace = true }
