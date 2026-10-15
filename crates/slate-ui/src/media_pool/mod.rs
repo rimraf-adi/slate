@@ -3,11 +3,11 @@
 use egui::{vec2, Color32, FontId, ScrollArea, Stroke, Ui};
 use std::path::PathBuf;
 
-use slate_core::id::{MediaId, TrackId};
-use slate_core::model::{Clip, MediaMetadata, MediaReference};
+use slate_core::id::MediaId;
+use slate_core::model::{Clip, MediaMetadata, MediaReference, TrackItem, TrackType};
 use slate_core::op::Op;
 use slate_core::OpSource;
-use slate_core::time::{RationalTime, TimeRange};
+use slate_core::time::{RationalTime, TimeRange, Timecode};
 use crate::state::EditorState;
 use crate::theme::SlateTheme;
 
@@ -99,7 +99,6 @@ impl MediaPoolPanel {
             ui.add_space(12.0);
             ui.vertical_centered(|ui| {
                 if ui.button("🎬 Add Demo 1080p Clip").clicked() {
-                    let mut engine = state.engine.lock();
                     let asset_id = MediaId::new();
                     let asset = MediaReference {
                         id: asset_id,
@@ -120,11 +119,14 @@ impl MediaPoolPanel {
                         proxy_path: None,
                         waveform_path: None,
                     };
-                    engine.project_mut().media_pool.push(asset);
+                    {
+                        let mut engine = state.engine.lock();
+                        engine.project_mut().media_pool.push(asset.clone());
+                    }
+                    insert_asset_onto_timeline(state, &asset);
                 }
 
                 if ui.button("🎵 Add Audio B-Roll Track").clicked() {
-                    let mut engine = state.engine.lock();
                     let asset_id = MediaId::new();
                     let asset = MediaReference {
                         id: asset_id,
@@ -145,7 +147,11 @@ impl MediaPoolPanel {
                         proxy_path: None,
                         waveform_path: None,
                     };
-                    engine.project_mut().media_pool.push(asset);
+                    {
+                        let mut engine = state.engine.lock();
+                        engine.project_mut().media_pool.push(asset.clone());
+                    }
+                    insert_asset_onto_timeline(state, &asset);
                 }
             });
             return;
@@ -161,7 +167,7 @@ impl MediaPoolPanel {
         });
         ui.add_space(4.0);
 
-        let mut add_to_timeline_media: Option<(MediaId, String, RationalTime)> = None;
+        let mut add_to_timeline_asset: Option<MediaReference> = None;
 
         ScrollArea::vertical().show(ui, |ui| {
             for asset in &assets {
@@ -209,12 +215,8 @@ impl MediaPoolPanel {
                         );
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("➕ Insert").on_hover_text("Insert clip at current playhead position").clicked() {
-                                let file_name = asset.original_path.file_name()
-                                    .and_then(|f| f.to_str())
-                                    .unwrap_or("Clip")
-                                    .to_string();
-                                add_to_timeline_media = Some((asset.id, file_name, asset.metadata.duration));
+                            if ui.button("➕ Insert").on_hover_text("Insert clip onto timeline").clicked() {
+                                add_to_timeline_asset = Some(asset.clone());
                             }
                         });
                     });
@@ -223,28 +225,95 @@ impl MediaPoolPanel {
             }
         });
 
-        if let Some((media_id, name, duration)) = add_to_timeline_media {
-            let target_track_id: Option<TrackId> = {
-                let engine = state.engine.lock();
-                engine.project().active_timeline().and_then(|tl| tl.tracks.first().map(|t| t.id))
-            };
-
-            if let Some(track_id) = target_track_id {
-                let timebase = duration.rate;
-                let clip = Clip::new(
-                    name,
-                    media_id,
-                    TimeRange::new(RationalTime::from_frames(0, timebase), duration),
-                    TimeRange::new(state.playhead, duration),
-                );
-
-                let op = Op::AddClip {
-                    track_id,
-                    clip,
-                    position: state.playhead,
-                };
-                let _ = state.apply_op(op, OpSource::Human);
-            }
+        if let Some(asset) = add_to_timeline_asset {
+            insert_asset_onto_timeline(state, &asset);
         }
+    }
+}
+
+pub fn insert_asset_onto_timeline(state: &mut EditorState, asset: &MediaReference) {
+    let has_video = asset.metadata.video_codec.is_some();
+    let duration = asset.metadata.duration;
+    let file_name = asset.original_path.file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or("Clip")
+        .to_string();
+
+    // 1. Find or create appropriate track
+    let track_id = {
+        let mut engine = state.engine.lock();
+        let active_tl = engine.project_mut().active_timeline_mut();
+        if let Some(tl) = active_tl {
+            let needed_type = if has_video { TrackType::Video } else { TrackType::Audio };
+            if let Some(t) = tl.tracks.iter().find(|t| t.track_type == needed_type && !t.locked) {
+                t.id
+            } else {
+                let name = if has_video {
+                    format!("V{}", tl.tracks.iter().filter(|t| t.track_type == TrackType::Video).count() + 1)
+                } else {
+                    format!("A{}", tl.tracks.iter().filter(|t| t.track_type == TrackType::Audio).count() + 1)
+                };
+                let track = slate_core::model::Track::new(name, needed_type);
+                let id = track.id;
+                tl.tracks.push(track);
+                id
+            }
+        } else {
+            return;
+        }
+    };
+
+    // 2. Find next available time (playhead if non-overlapping, or end of track)
+    let target_time = {
+        let engine = state.engine.lock();
+        if let Some(tl) = engine.project().active_timeline() {
+            if let Some(t) = tl.find_track(track_id) {
+                let test_range = TimeRange::new(state.playhead, duration);
+                let overlaps = t.items.iter().any(|item| {
+                    if let TrackItem::Clip(c) = item {
+                        c.timeline_range.overlaps(&test_range)
+                    } else {
+                        false
+                    }
+                });
+                if !overlaps {
+                    state.playhead
+                } else {
+                    let last_end = t.items.iter().filter_map(|item| {
+                        if let TrackItem::Clip(c) = item {
+                            Some(c.timeline_range.end_time())
+                        } else {
+                            None
+                        }
+                    }).max().unwrap_or(RationalTime::ZERO);
+                    last_end
+                }
+            } else {
+                state.playhead
+            }
+        } else {
+            state.playhead
+        }
+    };
+
+    let clip = Clip::new(
+        file_name.clone(),
+        asset.id,
+        TimeRange::new(RationalTime::from_frames(0, duration.rate), duration),
+        TimeRange::new(target_time, duration),
+    );
+    let clip_id = clip.id;
+
+    let op = Op::AddClip {
+        track_id,
+        clip,
+        position: target_time,
+    };
+    if state.apply_op(op, OpSource::Human).is_ok() {
+        state.selected_clip_ids.clear();
+        state.selected_clip_ids.insert(clip_id);
+        state.active_track_id = Some(track_id);
+        state.seek(target_time);
+        state.set_status(format!("✓ Inserted clip '{}' at {}", file_name, Timecode::format(target_time, false)), false);
     }
 }

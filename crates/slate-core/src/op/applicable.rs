@@ -199,7 +199,8 @@ impl OpApplicable for Op {
                         track_id: track.id,
                     });
                 }
-                if !clip.timeline_range.contains_time(*at) || *at == clip.timeline_range.start {
+                let at_rescaled = at.rescale(clip.timeline_range.start.rate);
+                if !clip.timeline_range.contains_time(at_rescaled) || at_rescaled <= clip.timeline_range.start {
                     return Err(OpError::SplitOutsideClip {
                         clip_id: *clip_id,
                         at: *at,
@@ -523,18 +524,19 @@ impl OpApplicable for Op {
                             _ => unreachable!(),
                         };
 
-                        let split_offset = *at - first_half.timeline_range.start;
+                        let at_rescaled = at.rescale(first_half.timeline_range.start.rate);
+                        let split_offset = at_rescaled - first_half.timeline_range.start;
                         let original_source_duration = first_half.source_range.duration;
 
                         let mut second_half = first_half.clone();
                         second_half.id = *new_clip_id;
-                        second_half.source_range.start += split_offset;
-                        second_half.source_range.duration -= split_offset;
-                        second_half.timeline_range.start = *at;
+                        second_half.source_range.start += split_offset.rescale(second_half.source_range.start.rate);
+                        second_half.source_range.duration -= split_offset.rescale(second_half.source_range.start.rate);
+                        second_half.timeline_range.start = at_rescaled;
                         second_half.timeline_range.duration -= split_offset;
 
                         if let TrackItem::Clip(first) = &mut track.items[pos] {
-                            first.source_range.duration = split_offset;
+                            first.source_range.duration = split_offset.rescale(first.source_range.start.rate);
                             first.timeline_range.duration = split_offset;
                         }
 

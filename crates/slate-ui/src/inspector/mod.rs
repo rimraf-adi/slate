@@ -231,10 +231,10 @@ impl InspectorPanel {
 
             // Clip Quick Actions
             ui.horizontal(|ui| {
-                if ui.button("✂ Split (C)").on_hover_text("Split clip at current playhead").clicked() {
-                    let _ = state.split_at_playhead();
+                if ui.button("✂ Split (C)").on_hover_text("Split clip at current playhead (or in half)").clicked() {
+                    let _ = state.split_selected_or_at_playhead();
                 }
-                if ui.button("🗑 Ripple Delete").on_hover_text("Delete clip and ripple close the gap").clicked() {
+                if ui.button("🗑 Ripple Delete").on_hover_text("Delete clip and ripple close the gap (Del)").clicked() {
                     let _ = state.ripple_delete_selected();
                 }
             });

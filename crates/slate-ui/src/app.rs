@@ -1,8 +1,9 @@
 //! Main eframe::App implementation for the Slate video editor.
 
-use egui::{vec2, CentralPanel, FontId, SidePanel, TopBottomPanel};
+use egui::{vec2, CentralPanel, Color32, FontId, SidePanel, TopBottomPanel};
 use slate_core::engine::Engine;
 use slate_core::model::Project;
+use slate_core::time::Timecode;
 
 use crate::state::EditorState;
 use crate::theme::SlateTheme;
@@ -67,13 +68,64 @@ impl eframe::App for SlateApp {
             ctx.request_repaint();
         }
 
-        // Global Keyboard Shortcuts
+        // Global Keyboard Shortcuts (NLE Industry Standard)
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z)) {
             if ctx.input(|i| i.modifiers.shift) {
                 let _ = self.state.redo();
             } else {
                 let _ = self.state.undo();
             }
+        }
+
+        // Split / Cut (Cmd+K / Ctrl+K / S)
+        if ctx.input(|i| (i.modifiers.command || i.modifiers.ctrl) && i.key_pressed(egui::Key::K))
+            || ctx.input(|i| !i.modifiers.command && !i.modifiers.ctrl && i.key_pressed(egui::Key::S))
+        {
+            let _ = self.state.split_selected_or_at_playhead();
+        }
+
+        // Ripple Delete (Delete or Backspace)
+        if ctx.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
+            let _ = self.state.ripple_delete_selected();
+        }
+
+        // Transport Controls: Play/Pause (Space)
+        if ctx.input(|i| i.key_pressed(egui::Key::Space)) {
+            self.state.toggle_play();
+        }
+
+        // Transport Controls: Shuttle J/K/L & Frame stepping
+        if ctx.input(|i| !i.modifiers.command && !i.modifiers.ctrl) {
+            if ctx.input(|i| i.key_pressed(egui::Key::J)) {
+                self.state.shuttle_backward();
+            }
+            if ctx.input(|i| i.key_pressed(egui::Key::K)) {
+                self.state.shuttle_pause();
+            }
+            if ctx.input(|i| i.key_pressed(egui::Key::L)) {
+                self.state.shuttle_forward();
+            }
+            if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
+                self.state.step_frame(-1);
+            }
+            if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
+                self.state.step_frame(1);
+            }
+            if ctx.input(|i| i.key_pressed(egui::Key::Home)) {
+                self.state.seek(slate_core::time::RationalTime::ZERO);
+            }
+        }
+
+        // Save Project (Cmd+S / Ctrl+S)
+        if ctx.input(|i| (i.modifiers.command || i.modifiers.ctrl) && i.key_pressed(egui::Key::S)) {
+            {
+                let engine = self.state.engine.lock();
+                let _ = slate_core::project::ProjectBundle::save_to_bundle(
+                    std::path::Path::new("/tmp/slate_autosave.slateproj"),
+                    engine.project(),
+                );
+            }
+            self.state.set_status("✓ Project autosaved to /tmp/slate_autosave.slateproj", false);
         }
 
         // 1. Top Studio Application Header Bar
@@ -126,8 +178,8 @@ impl eframe::App for SlateApp {
                                 ui.close_menu();
                             }
                             ui.separator();
-                            if ui.button("Split at Playhead (C)").clicked() {
-                                let _ = self.state.split_at_playhead();
+                            if ui.button("Split at Playhead (Cmd+K / S)").clicked() {
+                                let _ = self.state.split_selected_or_at_playhead();
                                 ui.close_menu();
                             }
                             if ui.button("Ripple Delete (Del)").clicked() {
@@ -242,7 +294,55 @@ impl eframe::App for SlateApp {
                 }
             });
 
-        // 4. Bottom Panel: Multi-track Timeline
+        // 4a. Studio Status Bar (At lowest screen edge)
+        TopBottomPanel::bottom("bottom_status_bar")
+            .exact_height(24.0)
+            .show(ctx, |ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.add_space(8.0);
+
+                    let status_color = if self.state.status_is_error {
+                        Color32::from_rgb(239, 68, 68)
+                    } else {
+                        Color32::from_rgb(16, 185, 129)
+                    };
+
+                    ui.label(
+                        egui::RichText::new(&self.state.status_text)
+                            .font(FontId::proportional(11.5))
+                            .color(status_color)
+                            .strong(),
+                    );
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.add_space(8.0);
+
+                        ui.label(
+                            egui::RichText::new("✂ Blade: C  •  Split: Cmd+K / S  •  Play: Space  •  Del: Ripple")
+                                .font(FontId::proportional(11.0))
+                                .color(SlateTheme::TEXT_MUTED),
+                        );
+
+                        ui.separator();
+
+                        ui.label(
+                            egui::RichText::new(format!("TC: {}", Timecode::format(self.state.playhead, false)))
+                                .font(FontId::monospace(11.0))
+                                .color(SlateTheme::ACCENT_CYAN),
+                        );
+
+                        ui.separator();
+
+                        ui.label(
+                            egui::RichText::new(format!("{:?}", self.state.active_tool))
+                                .font(FontId::monospace(10.5))
+                                .color(SlateTheme::ACCENT_AMBER),
+                        );
+                    });
+                });
+            });
+
+        // 4b. Multi-track Timeline
         TopBottomPanel::bottom("bottom_timeline")
             .resizable(true)
             .default_height(310.0)

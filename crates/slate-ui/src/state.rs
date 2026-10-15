@@ -11,7 +11,7 @@ use slate_core::id::{ClipId, TrackId};
 use slate_core::model::TrackItem;
 use slate_core::op::Op;
 use slate_core::OpSource;
-use slate_core::time::{RationalTime, TimeRange};
+use slate_core::time::{RationalTime, TimeRange, Timecode};
 use slate_audio::PlaybackClock;
 use slate_analysis::types::Transcript;
 
@@ -133,6 +133,11 @@ pub struct EditorState {
     pub dropped_frames: u64,
     pub last_frame_time: std::time::Instant,
 
+    // Studio status & feedback notification
+    pub status_text: String,
+    pub status_is_error: bool,
+    pub status_time: Option<std::time::Instant>,
+
     // Export
     pub export_state: ExportDialogState,
 }
@@ -168,8 +173,17 @@ impl EditorState {
             audio_peak_r: 0.0,
             dropped_frames: 0,
             last_frame_time: std::time::Instant::now(),
+            status_text: "Ready".to_string(),
+            status_is_error: false,
+            status_time: Some(std::time::Instant::now()),
             export_state: ExportDialogState::default(),
         }
+    }
+
+    pub fn set_status(&mut self, text: impl Into<String>, is_error: bool) {
+        self.status_text = text.into();
+        self.status_is_error = is_error;
+        self.status_time = Some(std::time::Instant::now());
     }
 
     /// Process incoming engine events to keep UI in live synchronization.
@@ -194,12 +208,17 @@ impl EditorState {
 
     /// Apply an operation with source attribution and record in agent history if applicable.
     pub fn apply_op(&mut self, op: Op, source: OpSource) -> Result<(), String> {
-        let mut engine = self.engine.lock();
         let op_name = format!("{:?}", op);
         let op_clone = op.clone();
+        let summary = format_op_summary(&op_clone);
 
-        engine.apply_op(op, source.clone(), format_op_summary(&op_clone))
-            .map_err(|e| e.to_string())?;
+        {
+            let mut engine = self.engine.lock();
+            engine.apply_op(op, source.clone(), summary.clone())
+                .map_err(|e| e.to_string())?;
+        }
+
+        self.set_status(format!("✓ {}", summary), false);
 
         // If from agent, record entry for the live Agent panel
         if let OpSource::Agent { session_id } = source {
@@ -207,7 +226,7 @@ impl EditorState {
                 op_id: Uuid::new_v4(),
                 session_id,
                 op_name,
-                summary: format_op_summary(&op_clone),
+                summary,
                 timestamp_secs: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
@@ -221,21 +240,39 @@ impl EditorState {
     }
 
     pub fn undo(&mut self) -> Result<bool, String> {
-        let mut engine = self.engine.lock();
-        if engine.history().can_undo() {
-            engine.undo().map_err(|e| e.to_string())?;
+        let success = {
+            let mut engine = self.engine.lock();
+            if engine.history().can_undo() {
+                engine.undo().map_err(|e| e.to_string())?;
+                true
+            } else {
+                false
+            }
+        };
+        if success {
+            self.set_status("↶ Undid last action", false);
             Ok(true)
         } else {
+            self.set_status("Nothing to undo", false);
             Ok(false)
         }
     }
 
     pub fn redo(&mut self) -> Result<bool, String> {
-        let mut engine = self.engine.lock();
-        if engine.history().can_redo() {
-            engine.redo().map_err(|e| e.to_string())?;
+        let success = {
+            let mut engine = self.engine.lock();
+            if engine.history().can_redo() {
+                engine.redo().map_err(|e| e.to_string())?;
+                true
+            } else {
+                false
+            }
+        };
+        if success {
+            self.set_status("↷ Redid last action", false);
             Ok(true)
         } else {
+            self.set_status("Nothing to redo", false);
             Ok(false)
         }
     }
@@ -303,43 +340,146 @@ impl EditorState {
         self.playback_clock.seek(time);
     }
 
-    /// Split the selected clip (or clip under playhead) at the current playhead position.
-    pub fn split_at_playhead(&mut self) -> Result<(), String> {
-        let (clip_to_split, _track_id) = {
+    /// Split a specific clip at a given timestamp.
+    pub fn split_clip_at(&mut self, clip_id: ClipId, at: RationalTime) -> Result<(), String> {
+        let (track_locked, clip_range, clip_name) = {
             let engine = self.engine.lock();
-            let mut target = None;
+            let tl = engine.project().active_timeline().ok_or_else(|| "No active timeline".to_string())?;
+            let (track, clip) = tl.find_clip(clip_id).ok_or_else(|| "Clip not found".to_string())?;
+            (track.locked, clip.timeline_range, clip.name.clone())
+        };
+
+        if track_locked {
+            let err = "Cannot split clip on a locked track".to_string();
+            self.set_status(&err, true);
+            return Err(err);
+        }
+
+        let at_rescaled = at.rescale(clip_range.start.rate);
+        if at_rescaled <= clip_range.start || at_rescaled >= clip_range.end_time() {
+            let err = format!(
+                "Cut point ({}) must be strictly inside clip range",
+                Timecode::format(at, false),
+            );
+            self.set_status(&err, true);
+            return Err(err);
+        }
+
+        let new_clip_id = ClipId::new();
+        let res = self.apply_op(
+            Op::SplitClip {
+                clip_id,
+                at: at_rescaled,
+                new_clip_id,
+            },
+            OpSource::Human,
+        );
+
+        match res {
+            Ok(_) => {
+                self.selected_clip_ids.clear();
+                self.selected_clip_ids.insert(new_clip_id);
+                self.set_status(format!("✓ Split clip '{}' at {}", clip_name, Timecode::format(at, false)), false);
+                Ok(())
+            }
+            Err(e) => {
+                self.set_status(format!("⚠ Split failed: {}", e), true);
+                Err(e)
+            }
+        }
+    }
+
+    /// Split the selected clip(s) or any clip under playhead at the current playhead position.
+    pub fn split_at_playhead(&mut self) -> Result<(), String> {
+        let candidates = {
+            let engine = self.engine.lock();
+            let mut list = Vec::new();
             if let Some(tl) = engine.project().active_timeline() {
                 for track in &tl.tracks {
+                    if track.locked {
+                        continue;
+                    }
                     for item in &track.items {
                         if let TrackItem::Clip(clip) = item {
-                            if (self.selected_clip_ids.contains(&clip.id) || self.selected_clip_ids.is_empty())
-                                && clip.timeline_range.contains_time(self.playhead)
-                                && self.playhead > clip.timeline_range.start
-                                && self.playhead < clip.timeline_range.end_time()
-                            {
-                                target = Some((clip.id, track.id));
-                                break;
+                            let at_rescaled = self.playhead.rescale(clip.timeline_range.start.rate);
+                            if clip.timeline_range.contains_time(at_rescaled) && at_rescaled > clip.timeline_range.start {
+                                list.push((clip.id, track.id, clip.name.clone()));
                             }
                         }
                     }
-                    if target.is_some() {
-                        break;
-                    }
                 }
             }
-            target
-        }
-        .ok_or_else(|| "No clip under playhead to split".to_string())?;
+            list
+        };
 
-        let split_time = self.playhead;
-        self.apply_op(
+        if candidates.is_empty() {
+            let err = format!("No clip under playhead to split at {}", Timecode::format(self.playhead, false));
+            self.set_status(&err, true);
+            return Err(err);
+        }
+
+        // If user has specific clips selected, filter to those; otherwise split active track or first candidate
+        let target = if !self.selected_clip_ids.is_empty() {
+            candidates.iter().find(|(cid, _, _)| self.selected_clip_ids.contains(cid)).cloned()
+        } else if let Some(active_tid) = self.active_track_id {
+            candidates.iter().find(|(_, tid, _)| *tid == active_tid).cloned().or_else(|| candidates.first().cloned())
+        } else {
+            candidates.first().cloned()
+        };
+
+        let (clip_id, _, name) = target.unwrap_or_else(|| candidates[0].clone());
+        let new_clip_id = ClipId::new();
+        let res = self.apply_op(
             Op::SplitClip {
-                clip_id: clip_to_split,
-                at: split_time,
-                new_clip_id: ClipId::new(),
+                clip_id,
+                at: self.playhead,
+                new_clip_id,
             },
             OpSource::Human,
-        )
+        );
+        match res {
+            Ok(_) => {
+                self.selected_clip_ids.clear();
+                self.selected_clip_ids.insert(new_clip_id);
+                self.set_status(format!("✓ Split clip '{}' at {}", name, Timecode::format(self.playhead, false)), false);
+                Ok(())
+            }
+            Err(e) => {
+                self.set_status(format!("⚠ Split failed: {}", e), true);
+                Err(e)
+            }
+        }
+    }
+
+    /// Split selected clip at playhead, or if playhead is outside selected clip, split at clip midpoint.
+    pub fn split_selected_or_at_playhead(&mut self) -> Result<(), String> {
+        let first_selected = self.selected_clip_ids.iter().next().copied();
+        let clip_range = if let Some(clip_id) = first_selected {
+            let engine = self.engine.lock();
+            engine.project().active_timeline().and_then(|tl| {
+                tl.find_clip(clip_id).map(|(_, clip)| clip.timeline_range)
+            })
+        } else {
+            None
+        };
+
+        if let (Some(clip_id), Some(range)) = (first_selected, clip_range) {
+            let at_rescaled = self.playhead.rescale(range.start.rate);
+            if range.contains_time(at_rescaled) && at_rescaled > range.start {
+                self.split_clip_at(clip_id, self.playhead)
+            } else {
+                // Split at clip midpoint and move playhead there
+                let mid_time = range.start + range.duration / 2;
+                if mid_time > range.start && mid_time < range.end_time() {
+                    self.seek(mid_time);
+                    self.split_clip_at(clip_id, mid_time)
+                } else {
+                    self.split_at_playhead()
+                }
+            }
+        } else {
+            self.split_at_playhead()
+        }
     }
 
     /// Ripple delete all selected clips.

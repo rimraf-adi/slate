@@ -6,7 +6,7 @@ pub mod snap;
 pub mod tools;
 pub mod track_view;
 
-use egui::{pos2, vec2, Align2, Color32, FontId, PointerButton, Rect, Sense, Stroke, Ui};
+use egui::{pos2, vec2, Align2, Color32, FontId, PointerButton, Pos2, Rect, Sense, Stroke, Ui};
 use slate_core::id::{ClipId, TrackId};
 use slate_core::model::{TrackItem, TrackType};
 use slate_core::op::Op;
@@ -83,6 +83,17 @@ impl TimelineWidget {
 
             ui.separator();
 
+            // Quick Timeline Edit Actions
+            if ui.button("✂ Split").on_hover_text("Split clip at current playhead (Cmd+K / C)").clicked() {
+                let _ = state.split_selected_or_at_playhead();
+            }
+
+            if ui.button("🗑 Delete").on_hover_text("Ripple delete selected clips (Del)").clicked() {
+                let _ = state.ripple_delete_selected();
+            }
+
+            ui.separator();
+
             // Magnetic snap toggle
             let snap_text = if state.snap_enabled { "🧲 Snapping ON (N)" } else { "🧲 Snapping OFF (N)" };
             if ui.selectable_label(state.snap_enabled, snap_text).clicked()
@@ -154,7 +165,7 @@ impl TimelineWidget {
 
         // 3. Draw Tracks & Clips
         let mut current_y = ruler_y + RULER_HEIGHT;
-        let mut clicked_clip: Option<(TrackId, ClipId, ClipHitArea)> = None;
+        let mut clicked_clip: Option<(TrackId, ClipId, ClipHitArea, Pos2)> = None;
 
         for track in &tracks_data {
             let track_h = DEFAULT_TRACK_HEIGHT;
@@ -212,7 +223,7 @@ impl TimelineWidget {
                     if let Some(hover_pos) = response.hover_pos() {
                         if let Some(area) = geom.hit_test(hover_pos) {
                             if response.clicked() {
-                                clicked_clip = Some((track.id, clip.id, area));
+                                clicked_clip = Some((track.id, clip.id, area, hover_pos));
                             }
                         }
                     }
@@ -255,6 +266,26 @@ impl TimelineWidget {
                 [pos2(playhead_x, ruler_y), pos2(playhead_x, current_y.max(timeline_rect.bottom()))],
                 Stroke::new(1.5, SlateTheme::PLAYHEAD_LINE),
             );
+        }
+
+        // 5b. Draw Blade Cutting Guide Line under cursor when active
+        if state.active_tool == ToolMode::Blade {
+            if let Some(hover_pos) = response.hover_pos() {
+                if hover_pos.x >= timeline_rect.left() + TRACK_HEADER_WIDTH && hover_pos.y >= ruler_y {
+                    let cut_color = Color32::from_rgb(239, 68, 68);
+                    painter.line_segment(
+                        [pos2(hover_pos.x, ruler_y), pos2(hover_pos.x, current_y.max(timeline_rect.bottom()))],
+                        Stroke::new(1.5, cut_color),
+                    );
+                    painter.text(
+                        pos2(hover_pos.x + 6.0, hover_pos.y - 10.0),
+                        Align2::LEFT_CENTER,
+                        "✂ CUT",
+                        FontId::monospace(10.0),
+                        cut_color,
+                    );
+                }
+            }
         }
 
         // 6. Handle Mouse Interactions
@@ -302,7 +333,7 @@ impl TimelineWidget {
         }
 
         // 7. Handle Clip Click Events based on Active Tool
-        if let Some((track_id, clip_id, _area)) = clicked_clip {
+        if let Some((track_id, clip_id, _area, click_pos)) = clicked_clip {
             match state.active_tool {
                 ToolMode::Select => {
                     if ui.input(|i| i.modifiers.shift) {
@@ -316,9 +347,21 @@ impl TimelineWidget {
                         state.selected_clip_ids.insert(clip_id);
                     }
                     state.active_track_id = Some(track_id);
+
+                    // Move playhead to click position
+                    let click_offset_x = click_pos.x - (timeline_rect.left() + TRACK_HEADER_WIDTH) + state.scroll_x;
+                    let target_secs = (click_offset_x / state.zoom_px_per_sec).max(0.0) as f64;
+                    let target_time = RationalTime::from_seconds(target_secs, timebase);
+                    state.seek(target_time);
                 }
                 ToolMode::Blade => {
-                    let _ = state.split_at_playhead();
+                    let click_offset_x = click_pos.x - (timeline_rect.left() + TRACK_HEADER_WIDTH) + state.scroll_x;
+                    let target_secs = (click_offset_x / state.zoom_px_per_sec).max(0.0) as f64;
+                    let cut_time = RationalTime::from_seconds(target_secs, timebase);
+
+                    if state.split_clip_at(clip_id, cut_time).is_ok() {
+                        state.seek(cut_time);
+                    }
                 }
                 _ => {}
             }
