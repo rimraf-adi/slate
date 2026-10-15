@@ -348,7 +348,50 @@ impl McpHandler {
                     .map_err(|e| McpError::InvalidParams(e.to_string()))?;
                 let width = args.width.unwrap_or(320);
                 let height = args.height.unwrap_or(180);
-                let img = image::RgbaImage::from_pixel(width, height, image::Rgba([35, 40, 50, 255]));
+                let target_time = args.time.to_rational();
+
+                let engine = self.engine.lock().await;
+                let project = engine.project();
+                let timeline = project.active_timeline();
+
+                let mut rendered_img = None;
+                if let Some(tl) = timeline {
+                    for track in &tl.tracks {
+                        if track.track_type == TrackType::Video {
+                            for item in &track.items {
+                                if let TrackItem::Clip(clip) = item {
+                                    if target_time >= clip.timeline_range.start
+                                        && target_time < clip.timeline_range.end_time()
+                                    {
+                                        if let Some(asset) = project.media_pool.iter().find(|m| m.id == clip.media_id) {
+                                            if asset.original_path.exists() {
+                                                let offset = target_time - clip.timeline_range.start;
+                                                let source_time = clip.source_range.start + offset;
+                                                if let Ok((w, h, raw)) = slate_media::thumbnail::ThumbnailGenerator::extract_frame(
+                                                    &asset.original_path,
+                                                    source_time,
+                                                    width,
+                                                ) {
+                                                    if let Some(img) = image::RgbaImage::from_raw(w, h, raw) {
+                                                        rendered_img = Some(img);
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if rendered_img.is_some() {
+                            break;
+                        }
+                    }
+                }
+
+                let img = rendered_img.unwrap_or_else(|| {
+                    image::RgbaImage::from_pixel(width, height, image::Rgba([35, 40, 50, 255]))
+                });
                 let mut png_bytes = Vec::new();
                 img.write_to(&mut std::io::Cursor::new(&mut png_bytes), image::ImageFormat::Png)
                     .map_err(|e| McpError::Internal(e.to_string()))?;
@@ -358,13 +401,44 @@ impl McpHandler {
             "render_contact_sheet" => {
                 let args: RenderContactSheetArgs = serde_json::from_value(arguments)
                     .map_err(|e| McpError::InvalidParams(e.to_string()))?;
+                let media_id: MediaId = args
+                    .media_id
+                    .parse()
+                    .map_err(|_| McpError::InvalidParams("Invalid UUID for media_id".to_string()))?;
                 let cols = args.cols.unwrap_or(4);
                 let rows = args.rows.unwrap_or(4);
                 let tw = args.thumb_width.unwrap_or(160);
                 let th = args.thumb_height.unwrap_or(90);
+
+                let engine = self.engine.lock().await;
+                let asset = engine.project().media_pool.iter().find(|m| m.id == media_id);
+
+                let mut rendered_img = None;
+                if let Some(asset) = asset {
+                    if asset.original_path.exists() {
+                        let total_range = TimeRange::new(
+                            RationalTime::new(0, asset.metadata.duration.rate),
+                            asset.metadata.duration,
+                        );
+                        if let Ok((w, h, raw)) = slate_media::thumbnail::ThumbnailGenerator::generate_contact_sheet(
+                            &asset.original_path,
+                            total_range,
+                            cols as u32,
+                            rows as u32,
+                            tw,
+                        ) {
+                            if let Some(img) = image::RgbaImage::from_raw(w, h, raw) {
+                                rendered_img = Some(img);
+                            }
+                        }
+                    }
+                }
+
                 let total_w = cols as u32 * tw;
                 let total_h = rows as u32 * th;
-                let img = image::RgbaImage::from_pixel(total_w, total_h, image::Rgba([20, 25, 30, 255]));
+                let img = rendered_img.unwrap_or_else(|| {
+                    image::RgbaImage::from_pixel(total_w, total_h, image::Rgba([20, 25, 30, 255]))
+                });
                 let mut png_bytes = Vec::new();
                 img.write_to(&mut std::io::Cursor::new(&mut png_bytes), image::ImageFormat::Png)
                     .map_err(|e| McpError::Internal(e.to_string()))?;
