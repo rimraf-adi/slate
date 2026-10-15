@@ -138,6 +138,13 @@ pub struct EditorState {
     pub status_is_error: bool,
     pub status_time: Option<std::time::Instant>,
 
+    // Media Pool Folders & Bins
+    pub media_active_bin: String,
+    pub media_custom_bins: Vec<String>,
+    pub media_search_query: String,
+    pub media_list_view: bool,
+    pub request_file_browser_import: bool,
+
     // Export
     pub export_state: ExportDialogState,
 }
@@ -176,8 +183,35 @@ impl EditorState {
             status_text: "Ready".to_string(),
             status_is_error: false,
             status_time: Some(std::time::Instant::now()),
+            media_active_bin: "All".to_string(),
+            media_custom_bins: vec!["B-Roll".to_string(), "Graphics".to_string(), "Interviews".to_string()],
+            media_search_query: String::new(),
+            media_list_view: false,
+            request_file_browser_import: false,
             export_state: ExportDialogState::default(),
         }
+    }
+
+    pub fn set_project(&mut self, mut project: slate_core::model::Project) {
+        if let Some(tl) = project.active_timeline_mut() {
+            if tl.tracks.is_empty() {
+                tl.tracks.push(slate_core::model::Track::new("V1", slate_core::model::TrackType::Video));
+                tl.tracks.push(slate_core::model::Track::new("A1", slate_core::model::TrackType::Audio));
+            }
+        }
+        let timebase = project.active_timeline()
+            .map(|t| t.settings.timebase)
+            .unwrap_or(30);
+        let engine = Engine::new(project, 200);
+        self.engine = Arc::new(Mutex::new(engine));
+        self.playback_clock = Arc::new(PlaybackClock::new(timebase));
+        self.playhead = RationalTime::from_frames(0, timebase);
+        self.is_playing = false;
+        self.selected_clip_ids.clear();
+        self.active_track_id = None;
+        self.transcript = None;
+        self.selected_transcript_words.clear();
+        self.set_status("✓ Project active", false);
     }
 
     pub fn set_status(&mut self, text: impl Into<String>, is_error: bool) {

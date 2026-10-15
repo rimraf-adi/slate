@@ -1,4 +1,4 @@
-//! Project Media Pool asset browser and file importer.
+//! Project Media Pool asset browser, folders/bins organizer, and file importer.
 
 use egui::{vec2, Color32, FontId, ScrollArea, Stroke, Ui};
 use std::path::PathBuf;
@@ -15,7 +15,7 @@ pub struct MediaPoolPanel;
 
 impl MediaPoolPanel {
     pub fn show(ui: &mut Ui, state: &mut EditorState) {
-        // Header
+        // 1. Top Panel Title & Main Actions
         ui.horizontal(|ui| {
             ui.heading(
                 egui::RichText::new("🎬 Media Pool")
@@ -23,44 +23,144 @@ impl MediaPoolPanel {
                     .strong(),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("➕ Import Media").on_hover_text("Import video, audio, or image files").clicked() {
-                    let mut engine = state.engine.lock();
-                    let asset_id = MediaId::new();
-                    let count = engine.project().media_pool.len() + 1;
-                    let asset = MediaReference {
-                        id: asset_id,
-                        original_path: PathBuf::from(format!("scene_{:02}_raw.mp4", count)),
-                        relative_path: PathBuf::from(format!("scene_{:02}_raw.mp4", count)),
-                        metadata: MediaMetadata {
-                            file_size_bytes: 1024 * 1024 * 45,
-                            duration: RationalTime::from_seconds(8.0 + (count as f64 * 2.0), 30),
-                            video_codec: Some("h264".into()),
-                            width: Some(1920),
-                            height: Some(1080),
-                            frame_rate: Some(30.0),
-                            timebase: 30,
-                            audio_codec: Some("aac".into()),
-                            audio_channels: Some(2),
-                            sample_rate: Some(48000),
-                        },
-                        proxy_path: None,
-                        waveform_path: None,
-                    };
-                    engine.project_mut().media_pool.push(asset);
+                // View Mode Toggle (Grid vs List)
+                let view_icon = if state.media_list_view { "☷ Grid" } else { "☰ List" };
+                if ui.button(view_icon).on_hover_text("Toggle between card grid and detailed list").clicked() {
+                    state.media_list_view = !state.media_list_view;
+                }
+
+                // Browse Files Button
+                if ui.button("📂 Browse...").on_hover_text("Open filesystem browser to import media").clicked() {
+                    state.request_file_browser_import = true;
                 }
             });
         });
 
-        ui.add_space(6.0);
-        ui.separator();
-        ui.add_space(6.0);
+        ui.add_space(4.0);
 
+        // 2. Search & Filter Bar
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut state.media_search_query)
+                    .hint_text("🔍 Search media...")
+                    .desired_width(ui.available_width() - 85.0),
+            );
+
+            if !state.media_search_query.is_empty() && ui.button("✕").clicked() {
+                state.media_search_query.clear();
+            }
+
+            if ui.button("➕ Sample").on_hover_text("Generate demo footage").clicked() {
+                let asset_id = MediaId::new();
+                let count = {
+                    let engine = state.engine.lock();
+                    engine.project().media_pool.len() + 1
+                };
+                let bin_prefix = if state.media_active_bin != "All" && state.media_active_bin != "Video" && state.media_active_bin != "Audio" {
+                    format!("{}/", state.media_active_bin)
+                } else {
+                    "".to_string()
+                };
+                let filename = format!("{}clip_{:02}_1080p.mp4", bin_prefix, count);
+                let asset = MediaReference {
+                    id: asset_id,
+                    original_path: PathBuf::from(&filename),
+                    relative_path: PathBuf::from(&filename),
+                    metadata: MediaMetadata {
+                        file_size_bytes: 1024 * 1024 * 60,
+                        duration: RationalTime::from_seconds(10.0 + (count as f64 * 2.0), 30),
+                        video_codec: Some("h264".into()),
+                        width: Some(1920),
+                        height: Some(1080),
+                        frame_rate: Some(30.0),
+                        timebase: 30,
+                        audio_codec: Some("aac".into()),
+                        audio_channels: Some(2),
+                        sample_rate: Some(48000),
+                    },
+                    proxy_path: None,
+                    waveform_path: None,
+                };
+                {
+                    let mut engine = state.engine.lock();
+                    engine.project_mut().media_pool.push(asset.clone());
+                }
+                insert_asset_onto_timeline(state, &asset);
+            }
+        });
+
+        ui.add_space(4.0);
+        ui.separator();
+        ui.add_space(4.0);
+
+        // Fetch Assets
         let assets: Vec<MediaReference> = {
             let engine = state.engine.lock();
             engine.project().media_pool.clone()
         };
 
-        if assets.is_empty() {
+        // 3. Folders / Bins Bar
+        let all_count = assets.len();
+        let video_count = assets.iter().filter(|a| a.metadata.video_codec.is_some()).count();
+        let audio_count = assets.iter().filter(|a| a.metadata.audio_codec.is_some() && a.metadata.video_codec.is_none()).count();
+
+        ScrollArea::horizontal().show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut state.media_active_bin, "All".to_string(), format!("📁 All ({})", all_count));
+                ui.selectable_value(&mut state.media_active_bin, "Video".to_string(), format!("🎬 Video ({})", video_count));
+                ui.selectable_value(&mut state.media_active_bin, "Audio".to_string(), format!("🎵 Audio ({})", audio_count));
+
+                for bin in &state.media_custom_bins.clone() {
+                    let bin_count = assets.iter().filter(|a| {
+                        a.relative_path.to_string_lossy().starts_with(bin)
+                    }).count();
+                    ui.selectable_value(&mut state.media_active_bin, bin.clone(), format!("📁 {} ({})", bin, bin_count));
+                }
+
+                // Add Bin Button
+                if ui.button("➕ Bin").on_hover_text("Create a new folder / bin").clicked() {
+                    let new_bin_name = format!("Bin_{}", state.media_custom_bins.len() + 1);
+                    if !state.media_custom_bins.contains(&new_bin_name) {
+                        state.media_custom_bins.push(new_bin_name.clone());
+                        state.media_active_bin = new_bin_name;
+                    }
+                }
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.separator();
+        ui.add_space(4.0);
+
+        // Filter assets by search and bin
+        let filtered_assets: Vec<MediaReference> = assets
+            .into_iter()
+            .filter(|asset| {
+                // Bin filter
+                let matches_bin = match state.media_active_bin.as_str() {
+                    "All" => true,
+                    "Video" => asset.metadata.video_codec.is_some(),
+                    "Audio" => asset.metadata.audio_codec.is_some() && asset.metadata.video_codec.is_none(),
+                    bin => asset.relative_path.to_string_lossy().starts_with(bin),
+                };
+
+                if !matches_bin {
+                    return false;
+                }
+
+                // Search query filter
+                if state.media_search_query.trim().is_empty() {
+                    true
+                } else {
+                    let q = state.media_search_query.to_lowercase();
+                    asset.original_path.to_string_lossy().to_lowercase().contains(&q)
+                        || asset.metadata.video_codec.as_deref().unwrap_or("").to_lowercase().contains(&q)
+                        || asset.metadata.audio_codec.as_deref().unwrap_or("").to_lowercase().contains(&q)
+                }
+            })
+            .collect();
+
+        if filtered_assets.is_empty() {
             // Elegant modern dropzone card
             ui.add_space(16.0);
             let dropzone_h = 160.0;
@@ -84,20 +184,23 @@ impl MediaPoolPanel {
             painter.text(
                 egui::pos2(rect.center().x, rect.center().y + 8.0),
                 egui::Align2::CENTER_CENTER,
-                "No Footage Imported",
+                "No Media in This Folder",
                 FontId::proportional(13.0),
                 SlateTheme::TEXT_PRIMARY,
             );
             painter.text(
                 egui::pos2(rect.center().x, rect.center().y + 26.0),
                 egui::Align2::CENTER_CENTER,
-                "Drag & drop media or click below",
+                "Browse files or generate demo footage",
                 FontId::proportional(11.0),
                 SlateTheme::TEXT_MUTED,
             );
 
             ui.add_space(12.0);
             ui.vertical_centered(|ui| {
+                if ui.button("📂 Browse Filesystem...").clicked() {
+                    state.request_file_browser_import = true;
+                }
                 if ui.button("🎬 Add Demo 1080p Clip").clicked() {
                     let asset_id = MediaId::new();
                     let asset = MediaReference {
@@ -160,7 +263,7 @@ impl MediaPoolPanel {
         // Summary bar
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new(format!("{} items in pool", assets.len()))
+                egui::RichText::new(format!("Showing {} of {} assets", filtered_assets.len(), all_count))
                     .font(FontId::proportional(11.0))
                     .color(SlateTheme::TEXT_MUTED),
             );
@@ -168,62 +271,126 @@ impl MediaPoolPanel {
         ui.add_space(4.0);
 
         let mut add_to_timeline_asset: Option<MediaReference> = None;
+        let mut move_to_bin: Option<(MediaId, String)> = None;
 
         ScrollArea::vertical().show(ui, |ui| {
-            for asset in &assets {
-                ui.group(|ui| {
-                    ui.set_width(ui.available_width());
+            if state.media_list_view {
+                // Detailed List View
+                for asset in &filtered_assets {
+                    ui.group(|ui| {
+                        ui.set_width(ui.available_width());
+                        let has_v = asset.metadata.video_codec.is_some();
+                        let has_a = asset.metadata.audio_codec.is_some();
 
-                    let has_v = asset.metadata.video_codec.is_some();
-                    let has_a = asset.metadata.audio_codec.is_some();
+                        ui.horizontal(|ui| {
+                            let (badge_text, badge_color) = match (has_v, has_a) {
+                                (true, true) => ("AV 1080p", SlateTheme::ACCENT_CYAN),
+                                (true, false) => ("VIDEO", SlateTheme::ACCENT_BLUE_LIGHT),
+                                (false, true) => ("AUDIO", SlateTheme::ACCENT_EMERALD),
+                                _ => ("FILE", SlateTheme::TEXT_MUTED),
+                            };
 
-                    ui.horizontal(|ui| {
-                        let (badge_text, badge_color) = match (has_v, has_a) {
-                            (true, true) => ("AV 1080p", SlateTheme::ACCENT_CYAN),
-                            (true, false) => ("VIDEO", SlateTheme::ACCENT_BLUE_LIGHT),
-                            (false, true) => ("AUDIO", SlateTheme::ACCENT_EMERALD),
-                            _ => ("FILE", SlateTheme::TEXT_MUTED),
-                        };
+                            ui.label(
+                                egui::RichText::new(badge_text)
+                                    .font(FontId::monospace(9.0))
+                                    .background_color(Color32::from_black_alpha(140))
+                                    .color(badge_color)
+                                    .strong(),
+                            );
 
-                        ui.label(
-                            egui::RichText::new(badge_text)
-                                .font(FontId::monospace(9.5))
-                                .background_color(Color32::from_black_alpha(140))
-                                .color(badge_color)
-                                .strong(),
-                        );
+                            let file_name = asset.original_path.file_name()
+                                .and_then(|f| f.to_str())
+                                .unwrap_or("media_file");
+                            ui.label(egui::RichText::new(file_name).font(FontId::proportional(11.5)).strong());
 
-                        let file_name = asset.original_path.file_name()
-                            .and_then(|f| f.to_str())
-                            .unwrap_or("media_file");
-                        ui.label(
-                            egui::RichText::new(file_name)
-                                .font(FontId::proportional(12.0))
-                                .strong(),
-                        );
-                    });
-
-                    ui.add_space(2.0);
-
-                    ui.horizontal(|ui| {
-                        let dur_secs = asset.metadata.duration.to_seconds();
-                        let size_mb = asset.metadata.file_size_bytes as f64 / (1024.0 * 1024.0);
-                        ui.label(
-                            egui::RichText::new(format!("{:.1}s  •  {:.1} MB", dur_secs, size_mb))
-                                .font(FontId::monospace(10.5))
-                                .color(SlateTheme::TEXT_MUTED),
-                        );
-
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("➕ Insert").on_hover_text("Insert clip onto timeline").clicked() {
-                                add_to_timeline_asset = Some(asset.clone());
-                            }
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.button("➕ Insert").on_hover_text("Insert clip onto timeline").clicked() {
+                                    add_to_timeline_asset = Some(asset.clone());
+                                }
+                                let dur_secs = asset.metadata.duration.to_seconds();
+                                ui.label(egui::RichText::new(format!("{:.1}s", dur_secs)).font(FontId::monospace(10.0)).color(SlateTheme::TEXT_MUTED));
+                            });
                         });
                     });
-                });
-                ui.add_space(4.0);
+                    ui.add_space(2.0);
+                }
+            } else {
+                // Card Grid View
+                for asset in &filtered_assets {
+                    ui.group(|ui| {
+                        ui.set_width(ui.available_width());
+
+                        let has_v = asset.metadata.video_codec.is_some();
+                        let has_a = asset.metadata.audio_codec.is_some();
+
+                        ui.horizontal(|ui| {
+                            let (badge_text, badge_color) = match (has_v, has_a) {
+                                (true, true) => ("AV 1080p", SlateTheme::ACCENT_CYAN),
+                                (true, false) => ("VIDEO", SlateTheme::ACCENT_BLUE_LIGHT),
+                                (false, true) => ("AUDIO", SlateTheme::ACCENT_EMERALD),
+                                _ => ("FILE", SlateTheme::TEXT_MUTED),
+                            };
+
+                            ui.label(
+                                egui::RichText::new(badge_text)
+                                    .font(FontId::monospace(9.5))
+                                    .background_color(Color32::from_black_alpha(140))
+                                    .color(badge_color)
+                                    .strong(),
+                            );
+
+                            let file_name = asset.original_path.file_name()
+                                .and_then(|f| f.to_str())
+                                .unwrap_or("media_file");
+                            ui.label(
+                                egui::RichText::new(file_name)
+                                    .font(FontId::proportional(12.0))
+                                    .strong(),
+                            );
+                        });
+
+                        ui.add_space(2.0);
+
+                        ui.horizontal(|ui| {
+                            let dur_secs = asset.metadata.duration.to_seconds();
+                            let size_mb = asset.metadata.file_size_bytes as f64 / (1024.0 * 1024.0);
+                            ui.label(
+                                egui::RichText::new(format!("{:.1}s  •  {:.1} MB", dur_secs, size_mb))
+                                    .font(FontId::monospace(10.5))
+                                    .color(SlateTheme::TEXT_MUTED),
+                            );
+
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.button("➕ Insert").on_hover_text("Insert clip onto timeline").clicked() {
+                                    add_to_timeline_asset = Some(asset.clone());
+                                }
+
+                                // Bin move menu
+                                ui.menu_button("📁", |ui| {
+                                    ui.label("Move to Folder:");
+                                    for bin in &state.media_custom_bins {
+                                        if ui.button(bin).clicked() {
+                                            move_to_bin = Some((asset.id, bin.clone()));
+                                            ui.close_menu();
+                                        }
+                                    }
+                                });
+                            });
+                        });
+                    });
+                    ui.add_space(4.0);
+                }
             }
         });
+
+        // Handle moving asset to bin
+        if let Some((id, bin)) = move_to_bin {
+            let mut engine = state.engine.lock();
+            if let Some(asset) = engine.project_mut().media_pool.iter_mut().find(|a| a.id == id) {
+                let filename = asset.original_path.file_name().unwrap_or_default().to_string_lossy();
+                asset.relative_path = PathBuf::from(format!("{}/{}", bin, filename));
+            }
+        }
 
         if let Some(asset) = add_to_timeline_asset {
             insert_asset_onto_timeline(state, &asset);

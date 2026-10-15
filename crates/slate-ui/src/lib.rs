@@ -4,6 +4,8 @@ pub mod agent_panel;
 pub mod app;
 pub mod audio_monitor;
 pub mod export;
+pub mod file_browser;
+pub mod homescreen;
 pub mod inspector;
 pub mod media_pool;
 pub mod state;
