@@ -1,12 +1,12 @@
 //! Selected clip inspector panel for transform, audio, and keyframes.
 
-use egui::{DragValue, Slider, Ui};
+use egui::{DragValue, FontId, Slider, Ui};
 use slate_core::id::{ClipId, KeyframeId, TrackId};
 use slate_core::model::keyframe::{Interpolation, Keyframe};
 use slate_core::model::{Clip, TrackItem};
 use slate_core::op::Op;
 use slate_core::OpSource;
-use slate_core::time::RationalTime;
+use slate_core::time::{RationalTime, Timecode};
 use crate::state::EditorState;
 use crate::theme::SlateTheme;
 
@@ -14,9 +14,6 @@ pub struct InspectorPanel;
 
 impl InspectorPanel {
     pub fn show(ui: &mut Ui, state: &mut EditorState) {
-        ui.heading("Clip Inspector");
-        ui.separator();
-
         let active_clip_id = state.selected_clip_ids.iter().next().copied();
 
         let clip_data: Option<(TrackId, ClipId, Clip)> = active_clip_id.and_then(|cid| {
@@ -36,16 +33,59 @@ impl InspectorPanel {
         });
 
         if let Some((_track_id, clip_id, clip)) = clip_data {
-            ui.label(format!("Clip: {}", clip.name));
-            ui.label(
-                egui::RichText::new(format!("ID: {}", clip_id))
-                    .font(egui::FontId::monospace(10.0))
-                    .color(SlateTheme::TEXT_MUTED),
-            );
+            ui.horizontal(|ui| {
+                ui.heading(
+                    egui::RichText::new("⚙ Clip Inspector")
+                        .font(FontId::proportional(15.0))
+                        .strong(),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        egui::RichText::new("SELECTED")
+                            .font(FontId::monospace(9.5))
+                            .background_color(SlateTheme::ACCENT_BLUE)
+                            .color(egui::Color32::WHITE)
+                            .strong(),
+                    );
+                });
+            });
+
+            ui.add_space(4.0);
+            ui.separator();
+            ui.add_space(4.0);
+
+            ui.group(|ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("Clip:")
+                            .font(FontId::proportional(11.0))
+                            .color(SlateTheme::TEXT_MUTED),
+                    );
+                    ui.label(
+                        egui::RichText::new(&clip.name)
+                            .font(FontId::proportional(12.5))
+                            .strong(),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("Duration:")
+                            .font(FontId::proportional(11.0))
+                            .color(SlateTheme::TEXT_MUTED),
+                    );
+                    ui.label(
+                        egui::RichText::new(Timecode::format(clip.timeline_range.duration, false))
+                            .font(FontId::monospace(11.0))
+                            .color(SlateTheme::ACCENT_CYAN),
+                    );
+                });
+            });
+
             ui.add_space(8.0);
 
             // Transform Group
-            egui::CollapsingHeader::new("Transform")
+            egui::CollapsingHeader::new("🎬 Video & Transform")
                 .default_open(true)
                 .show(ui, |ui| {
                     let mut pos_x = clip.transform.position_x.evaluate_at(RationalTime::ZERO, 0.0);
@@ -140,10 +180,10 @@ impl InspectorPanel {
                     }
                 });
 
-            ui.add_space(8.0);
+            ui.add_space(6.0);
 
             // Audio Group
-            egui::CollapsingHeader::new("Audio & Gain")
+            egui::CollapsingHeader::new("🔊 Audio & Levels")
                 .default_open(true)
                 .show(ui, |ui| {
                     let mut vol_db = clip.audio_params.volume_db.evaluate_at(RationalTime::ZERO, 0.0);
@@ -151,8 +191,8 @@ impl InspectorPanel {
                     let mut changed = false;
 
                     ui.horizontal(|ui| {
-                        ui.label("Volume (dB):");
-                        if ui.add(Slider::new(&mut vol_db, -60.0..=12.0)).changed() {
+                        ui.label("Volume:");
+                        if ui.add(Slider::new(&mut vol_db, -60.0..=12.0).suffix(" dB")).changed() {
                             changed = true;
                         }
                     });
@@ -187,21 +227,107 @@ impl InspectorPanel {
                     }
                 });
 
-            ui.add_space(8.0);
+            ui.add_space(10.0);
 
-            // Actions
+            // Clip Quick Actions
             ui.horizontal(|ui| {
-                if ui.button("✂ Split at Playhead").clicked() {
+                if ui.button("✂ Split (C)").on_hover_text("Split clip at current playhead").clicked() {
                     let _ = state.split_at_playhead();
                 }
-                if ui.button("🗑 Delete (Ripple)").clicked() {
+                if ui.button("🗑 Ripple Delete").on_hover_text("Delete clip and ripple close the gap").clicked() {
                     let _ = state.ripple_delete_selected();
                 }
             });
         } else {
+            // Sequence & Project Properties (Professional default when idle)
+            let (proj_name, seq_name, width, height, fps, track_count, total_dur) = {
+                let engine = state.engine.lock();
+                let p = engine.project();
+                let tl = p.active_timeline();
+                (
+                    p.name.clone(),
+                    tl.map(|t| t.name.clone()).unwrap_or_else(|| "Main Sequence".into()),
+                    tl.map(|t| t.settings.width).unwrap_or(1920),
+                    tl.map(|t| t.settings.height).unwrap_or(1080),
+                    tl.map(|t| t.settings.timebase).unwrap_or(30),
+                    tl.map(|t| t.tracks.len()).unwrap_or(0),
+                    tl.map(|t| t.duration()).unwrap_or(RationalTime::ZERO),
+                )
+            };
+
+            ui.horizontal(|ui| {
+                ui.heading(
+                    egui::RichText::new("⚙ Project Inspector")
+                        .font(FontId::proportional(15.0))
+                        .strong(),
+                );
+            });
+
+            ui.add_space(4.0);
+            ui.separator();
+            ui.add_space(8.0);
+
+            ui.group(|ui| {
+                ui.set_width(ui.available_width());
+                ui.label(
+                    egui::RichText::new("SEQUENCE PROPERTIES")
+                        .font(FontId::monospace(9.5))
+                        .color(SlateTheme::TEXT_MUTED)
+                        .strong(),
+                );
+                ui.add_space(4.0);
+
+                ui.horizontal(|ui| {
+                    ui.label("Project:");
+                    ui.label(egui::RichText::new(&proj_name).strong());
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Sequence:");
+                    ui.label(egui::RichText::new(&seq_name).color(SlateTheme::TEXT_PRIMARY));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Canvas:");
+                    ui.label(
+                        egui::RichText::new(format!("{} × {} (16:9)", width, height))
+                            .color(SlateTheme::ACCENT_CYAN)
+                            .strong(),
+                    );
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Timebase:");
+                    ui.label(format!("{}.00 fps", fps));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Duration:");
+                    ui.label(
+                        egui::RichText::new(Timecode::format(total_dur, false))
+                            .font(FontId::monospace(11.0))
+                            .color(SlateTheme::TEXT_PRIMARY),
+                    );
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Active Tracks:");
+                    ui.label(format!("{} tracks", track_count));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Audio Rate:");
+                    ui.label("48,000 Hz Stereo");
+                });
+            });
+
+            ui.add_space(12.0);
+
             ui.label(
-                egui::RichText::new("Select a clip on the timeline to inspect its properties.")
-                    .color(SlateTheme::TEXT_MUTED),
+                egui::RichText::new("Tip: Select any clip on the timeline to inspect and keyframe position, scale, opacity, and audio gain.")
+                    .font(FontId::proportional(11.0))
+                    .color(SlateTheme::TEXT_MUTED)
+                    .italics(),
             );
         }
     }
