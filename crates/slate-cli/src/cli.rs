@@ -43,6 +43,7 @@ pub enum Commands {
     Info(InfoArgs),
 
     /// Render and export a project timeline to a target video container
+    #[command(alias = "export")]
     Render(RenderArgs),
 
     /// Import a media asset into a project bundle
@@ -50,6 +51,18 @@ pub enum Commands {
 
     /// Extract a video thumbnail or contact sheet
     Thumbnail(ThumbnailArgs),
+
+    /// Inspect and display ASCII multi-track timeline and project summary
+    Timeline(crate::commands::timeline::TimelineArgs),
+
+    /// Manage timeline tracks (add, remove, list)
+    Track(crate::commands::track::TrackArgs),
+
+    /// Manage timeline clips (list, split, remove)
+    Clip(crate::commands::clip::ClipArgs),
+
+    /// Run system, GPU, audio, and FFmpeg diagnostic doctor
+    Doctor,
 
     /// Apply an atomic batch of operations from a JSON file
     Ops(OpsArgs),

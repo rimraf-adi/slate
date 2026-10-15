@@ -1,4 +1,6 @@
 pub mod analyze;
+pub mod clip;
+pub mod doctor;
 pub mod gui;
 pub mod import;
 pub mod info;
@@ -7,4 +9,6 @@ pub mod new;
 pub mod ops;
 pub mod render;
 pub mod thumbnail;
+pub mod timeline;
+pub mod track;
 pub mod version;

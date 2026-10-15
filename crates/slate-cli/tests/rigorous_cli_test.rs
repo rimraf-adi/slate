@@ -142,3 +142,100 @@ fn test_cli_analyze_command() {
     assert!(json.get("vadThreshold").is_some());
     assert!(json.get("transcriptionModel").is_some());
 }
+
+#[test]
+fn test_cli_doctor_command() {
+    let output = Command::new(env!("CARGO_BIN_EXE_slate"))
+        .arg("--json")
+        .arg("doctor")
+        .output()
+        .expect("run doctor");
+
+    assert!(output.status.success(), "doctor command should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("parse json");
+    assert!(json.get("status").is_some());
+    assert!(json.get("system").is_some());
+    assert!(json.get("diagnostics").is_some());
+    assert!(json["diagnostics"].get("gpu").is_some());
+    assert!(json["diagnostics"].get("audio").is_some());
+    assert!(json["diagnostics"].get("ffmpeg").is_some());
+}
+
+#[test]
+fn test_cli_timeline_and_track_clip_management() {
+    let dir = tempdir().unwrap();
+    let proj_dir = dir.path().join("full_cli_suite.slateproj");
+
+    // 1. slate new
+    let status = Command::new(env!("CARGO_BIN_EXE_slate"))
+        .arg("new")
+        .arg(&proj_dir)
+        .arg("--name")
+        .arg("CLI Studio Project")
+        .status()
+        .expect("slate new failed");
+    assert!(status.success());
+
+    // 2. slate timeline --json
+    let tl_output = Command::new(env!("CARGO_BIN_EXE_slate"))
+        .arg("--json")
+        .arg("timeline")
+        .arg(&proj_dir)
+        .output()
+        .expect("slate timeline");
+    assert!(tl_output.status.success());
+    let tl_json: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&tl_output.stdout)).unwrap();
+    assert_eq!(tl_json["status"], "success");
+    assert_eq!(tl_json["project"]["name"], "CLI Studio Project");
+    assert_eq!(tl_json["timeline"]["tracksCount"], 0);
+
+    // 3. slate track add
+    let track_add = Command::new(env!("CARGO_BIN_EXE_slate"))
+        .arg("--json")
+        .arg("track")
+        .arg("add")
+        .arg(&proj_dir)
+        .arg("V2 Overlay")
+        .arg("--type")
+        .arg("video")
+        .output()
+        .expect("slate track add");
+    assert!(track_add.status.success(), "track add failed: {}", String::from_utf8_lossy(&track_add.stderr));
+    let track_add_json: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&track_add.stdout)).unwrap();
+    assert_eq!(track_add_json["status"], "success");
+    assert_eq!(track_add_json["name"], "V2 Overlay");
+
+    // 4. slate track list
+    let track_list = Command::new(env!("CARGO_BIN_EXE_slate"))
+        .arg("--json")
+        .arg("track")
+        .arg("list")
+        .arg(&proj_dir)
+        .output()
+        .expect("slate track list");
+    assert!(track_list.status.success());
+    let track_list_json: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&track_list.stdout)).unwrap();
+    assert_eq!(track_list_json.as_array().unwrap().len(), 1);
+
+    // 5. slate clip list (initially empty)
+    let clip_list = Command::new(env!("CARGO_BIN_EXE_slate"))
+        .arg("--json")
+        .arg("clip")
+        .arg("list")
+        .arg(&proj_dir)
+        .output()
+        .expect("slate clip list");
+    assert!(clip_list.status.success());
+    let clip_list_json: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&clip_list.stdout)).unwrap();
+    assert_eq!(clip_list_json.as_array().unwrap().len(), 0);
+
+    // 6. Test export alias
+    let export_help = Command::new(env!("CARGO_BIN_EXE_slate"))
+        .arg("export")
+        .arg("--help")
+        .output()
+        .expect("slate export help");
+    assert!(export_help.status.success());
+}
+
