@@ -653,6 +653,33 @@ impl OpApplicable for Op {
                 let caption = timeline.captions.remove(pos);
                 Ok(OpInverse::RestoreRemovedCaption { caption })
             }
+            Op::UpdateCaption {
+                caption_id,
+                text,
+                style,
+            } => {
+                let pos = timeline
+                    .captions
+                    .iter()
+                    .position(|c| c.id == *caption_id)
+                    .ok_or(OpError::CaptionNotFound {
+                        caption_id: *caption_id,
+                    })?;
+                let cap = &mut timeline.captions[pos];
+                let original_text = cap.text.clone();
+                let original_style = cap.style.clone();
+                if let Some(t) = text {
+                    cap.text = t.clone();
+                }
+                if let Some(s) = style {
+                    cap.style = s.clone();
+                }
+                Ok(OpInverse::RevertUpdateCaption {
+                    caption_id: *caption_id,
+                    original_text,
+                    original_style,
+                })
+            }
             Op::RippleDelete { ranges, track_ids } => {
                 let mut restored_tracks = Vec::new();
                 for track in &mut timeline.tracks {

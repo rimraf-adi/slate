@@ -222,3 +222,111 @@ fn test_slate_app_project_lifecycle() {
     let engine = app.state.engine.lock();
     assert_eq!(engine.project().media_pool.len(), 1);
 }
+
+#[test]
+fn test_inspector_pan_zoom_crop_sounds_text() {
+    use slate_core::id::{CaptionId, KeyframeId};
+    use slate_core::model::caption::{Caption, CaptionStyle};
+    use slate_core::model::keyframe::{Interpolation, Keyframe};
+    use slate_core::op::Op;
+    use slate_core::OpSource;
+    use slate_core::time::TimeRange;
+
+    let project = Project::new("Effects Test");
+    let mut app = SlateApp::new_with_project(project);
+    app.create_sample_project();
+
+    let clip_id = {
+        let engine = app.state.engine.lock();
+        let tl = engine.project().active_timeline().unwrap();
+        match &tl.tracks[0].items[0] {
+            slate_core::model::TrackItem::Clip(c) => c.id,
+            _ => panic!("Expected clip"),
+        }
+    };
+
+    // 1. Pan, Zoom & Crop
+    let mut transform = slate_core::model::Transform::default();
+    transform.position_x.keyframes = vec![Keyframe {
+        id: KeyframeId::new(),
+        time: RationalTime::ZERO,
+        value: 0.25, // Pan right
+        interpolation: Interpolation::Linear,
+    }];
+    transform.scale_x.keyframes = vec![Keyframe {
+        id: KeyframeId::new(),
+        time: RationalTime::ZERO,
+        value: 1.20, // Zoom in
+        interpolation: Interpolation::Linear,
+    }];
+    transform.crop_left.keyframes = vec![Keyframe {
+        id: KeyframeId::new(),
+        time: RationalTime::ZERO,
+        value: 0.28, // 9:16 vertical crop
+        interpolation: Interpolation::Linear,
+    }];
+    transform.crop_right.keyframes = vec![Keyframe {
+        id: KeyframeId::new(),
+        time: RationalTime::ZERO,
+        value: 0.28,
+        interpolation: Interpolation::Linear,
+    }];
+
+    assert!(app.state.apply_op(Op::SetTransform { clip_id, transform }, OpSource::Human).is_ok());
+
+    // 2. Audio & Sounds
+    let mut audio = slate_core::model::AudioParams::default();
+    audio.volume_db.keyframes = vec![Keyframe {
+        id: KeyframeId::new(),
+        time: RationalTime::ZERO,
+        value: 3.0, // Dialogue enhance +3dB
+        interpolation: Interpolation::Linear,
+    }];
+    audio.pan.keyframes = vec![Keyframe {
+        id: KeyframeId::new(),
+        time: RationalTime::ZERO,
+        value: -0.5, // Pan left
+        interpolation: Interpolation::Linear,
+    }];
+    assert!(app.state.apply_op(Op::SetAudioParams { clip_id, params: audio }, OpSource::Human).is_ok());
+
+    // 3. Text Effects & Captions
+    let cap_id = CaptionId::new();
+    let caption = Caption {
+        id: cap_id,
+        time_range: TimeRange::new(RationalTime::ZERO, RationalTime::from_seconds(4.0, 30)),
+        text: "Kinetic TikTok Subtitle".to_string(),
+        style: CaptionStyle {
+            font_family: "Inter".to_string(),
+            font_size: 48.0,
+            font_weight: 700,
+            text_color_rgba: [1.0, 0.9, 0.1, 1.0], // Eye-catching yellow
+            bg_color_rgba: [0.0, 0.0, 0.0, 0.8],
+            outline_color_rgba: [0.0, 0.0, 0.0, 1.0],
+            outline_width: 3.0,
+            vertical_alignment: "bottom".to_string(),
+            margin_bottom_percent: 0.1,
+        },
+    };
+    assert!(app.state.apply_op(Op::AddCaption { caption }, OpSource::Human).is_ok());
+
+    {
+        let engine = app.state.engine.lock();
+        let tl = engine.project().active_timeline().unwrap();
+        assert_eq!(tl.captions.len(), 1);
+        assert_eq!(tl.captions[0].text, "Kinetic TikTok Subtitle");
+    }
+
+    // Update text
+    assert!(app.state.apply_op(Op::UpdateCaption {
+        caption_id: cap_id,
+        text: Some("Updated Cinematic Title".to_string()),
+        style: None,
+    }, OpSource::Human).is_ok());
+
+    {
+        let engine = app.state.engine.lock();
+        let tl = engine.project().active_timeline().unwrap();
+        assert_eq!(tl.captions[0].text, "Updated Cinematic Title");
+    }
+}

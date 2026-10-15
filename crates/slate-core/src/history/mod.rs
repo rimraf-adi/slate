@@ -281,6 +281,16 @@ pub fn apply_inverse(
         OpInverse::RestoreRemovedCaption { caption } => {
             timeline.captions.push(caption.clone());
         }
+        OpInverse::RevertUpdateCaption {
+            caption_id,
+            original_text,
+            original_style,
+        } => {
+            if let Some(cap) = timeline.captions.iter_mut().find(|c| c.id == *caption_id) {
+                cap.text = original_text.clone();
+                cap.style = original_style.clone();
+            }
+        }
         OpInverse::BatchInverse { inverses, .. } => {
             for inv in inverses {
                 apply_inverse(inv, timeline, media_pool);

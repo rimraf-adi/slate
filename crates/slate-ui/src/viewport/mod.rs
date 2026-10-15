@@ -195,6 +195,67 @@ impl ViewportWidget {
             );
         }
 
+        // 2b. Render Active Caption / Title Overlay onto Canvas
+        let active_caption = {
+            let engine = state.engine.lock();
+            engine.project().active_timeline().and_then(|tl| {
+                tl.captions.iter().find(|c| c.time_range.contains_time(current_time)).cloned()
+            })
+        };
+
+        if let Some(caption) = active_caption {
+            let scale_factor = (canvas_rect.width() / 1920.0).max(0.3);
+            let font_size = (caption.style.font_size * scale_factor).max(11.0);
+            let text_color = Color32::from_rgba_unmultiplied(
+                (caption.style.text_color_rgba[0] * 255.0) as u8,
+                (caption.style.text_color_rgba[1] * 255.0) as u8,
+                (caption.style.text_color_rgba[2] * 255.0) as u8,
+                (caption.style.text_color_rgba[3] * 255.0) as u8,
+            );
+            let bg_color = Color32::from_rgba_unmultiplied(
+                (caption.style.bg_color_rgba[0] * 255.0) as u8,
+                (caption.style.bg_color_rgba[1] * 255.0) as u8,
+                (caption.style.bg_color_rgba[2] * 255.0) as u8,
+                (caption.style.bg_color_rgba[3] * 255.0) as u8,
+            );
+
+            let y_pos = match caption.style.vertical_alignment.as_str() {
+                "top" => canvas_rect.top() + canvas_rect.height() * 0.15,
+                "center" => canvas_rect.center().y,
+                _ => canvas_rect.bottom() - canvas_rect.height() * (caption.style.margin_bottom_percent.max(0.08)),
+            };
+
+            let text_pos = pos2(canvas_rect.center().x, y_pos);
+            let font = FontId::proportional(font_size);
+
+            let galley = painter.layout_no_wrap(caption.text.clone(), font, text_color);
+            let bg_pad = 8.0 * scale_factor;
+            let bg_rect = Rect::from_center_size(
+                text_pos,
+                vec2(galley.size().x + bg_pad * 2.0, galley.size().y + bg_pad * 1.5),
+            );
+
+            if caption.style.bg_color_rgba[3] > 0.05 {
+                painter.rect_filled(bg_rect, 4.0, bg_color);
+            }
+
+            if caption.style.outline_width > 0.0 {
+                let stroke_color = Color32::from_rgba_unmultiplied(
+                    (caption.style.outline_color_rgba[0] * 255.0) as u8,
+                    (caption.style.outline_color_rgba[1] * 255.0) as u8,
+                    (caption.style.outline_color_rgba[2] * 255.0) as u8,
+                    (caption.style.outline_color_rgba[3] * 255.0) as u8,
+                );
+                painter.rect_stroke(bg_rect, 4.0, Stroke::new(caption.style.outline_width * scale_factor, stroke_color));
+            }
+
+            painter.galley(
+                pos2(text_pos.x - galley.size().x / 2.0, text_pos.y - galley.size().y / 2.0),
+                galley,
+                text_color,
+            );
+        }
+
         // 3. Bottom Transport Controls Bar
         let controls_rect = Rect::from_min_size(
             pos2(viewport_rect.left(), viewport_rect.bottom() - controls_height),
