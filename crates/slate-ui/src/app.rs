@@ -44,7 +44,13 @@ impl SlateApp {
         }
     }
 
-    pub fn new_with_project(project: Project) -> Self {
+    pub fn new_with_project(mut project: Project) -> Self {
+        if let Some(tl) = project.active_timeline_mut() {
+            if tl.tracks.is_empty() {
+                tl.tracks.push(slate_core::model::Track::new("V1", slate_core::model::TrackType::Video));
+                tl.tracks.push(slate_core::model::Track::new("A1", slate_core::model::TrackType::Audio));
+            }
+        }
         let engine = Engine::new(project, 200);
         Self::new(engine)
     }
